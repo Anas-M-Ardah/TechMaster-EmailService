@@ -2,9 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Configure CORS
+app.use(cors({
+  origin: 'https://technology-master.netlify.app', // Allow requests from your React app's domain
+}));
 
 app.use(bodyParser.json());
 
