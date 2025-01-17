@@ -17,7 +17,7 @@ app.post('/api/contact', (req, res) => {
 
   const data = {
     from: email,
-    to: process.env.EMAIL_USER,
+    to: `${process.env.EMAIL_USER}, ${process.env.EMAIL_USER2}, ${process.env.EMAIL_USER3}`,
     subject: 'New Contact Form Submission',
     text: `Name: ${name}\nEmail: ${email}\nPhone: ${phone}\nMessage: ${message}`,
   };
