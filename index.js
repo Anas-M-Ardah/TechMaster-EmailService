@@ -35,5 +35,3 @@ app.post('/api/contact', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
-
-keep_alive();
