@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const mailgun = require('mailgun-js');
+const keep_alive = require('./keep_alive');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
