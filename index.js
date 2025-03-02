@@ -104,7 +104,7 @@ app.post('/api/contact', (req, res) => {
   const data = {
     from: `${process.env.COMPANY_NAME} <${process.env.EMAIL_USER}>`,
     to: process.env.EMAIL_USER,
-    bcc: [process.env.EMAIL_USER2, process.env.EMAIL_USER3, process.env.EMAIL_USER4].join(', '),
+    bcc: [process.env.EMAIL_USER2, process.env.EMAIL_USER3].join(', '),
     subject: 'New Contact Form Submission',
     html: createEmailHTML(name, email, phone, message),
     // Keep the text version as fallback
