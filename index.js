@@ -16,7 +16,7 @@ app.use(helmet());
 app.use(bodyParser.json({ limit: '10kb' })); // Limit payload size
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-  methods: ['POST']
+  methods: ['POST', 'OPTIONS'],
 }));
 
 // Initialize nodemailer with retry logic
