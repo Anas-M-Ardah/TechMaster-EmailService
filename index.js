@@ -57,7 +57,7 @@ const createTransporter = () => {
       pass: process.env.EMAIL_APP_PASSWORD // Make sure to use App Password, not regular password
     },
     maxConnections: 5,
-    maxMessages: 10,
+    maxMessages: 20,
     pool: true // Use pooled connections
   });
 
@@ -282,7 +282,7 @@ const sendContactEmail = async (data, retries = 3) => {
 const rateLimit = require('express-rate-limit');
 const contactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,
   handler: (req, res) => {
     res.status(429).json({
       success: false,
