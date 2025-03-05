@@ -3,44 +3,117 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
+const helmet = require('helmet');
 const { body, validationResult } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
+const keep_alive = require('./keep_alive');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(bodyParser.json());
-app.use(cors());
+// Define allowed origins
+const allowedOrigins = [
+  'https://technology-master.com',
+  'https://www.technology-master.com',
+  'http://localhost:3000',
+  'http://localhost:5000'
+];
 
-// Email configuration
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port:  587,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
-  },
-  tls: {
-    rejectUnauthorized: false // Needed for some email providers
+// Basic middleware
+app.use(bodyParser.json());
+
+// CORS configuration
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // Log the origin for debugging
+  console.log('Request origin:', origin);
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  next();
 });
 
-// Validation middleware
+
+// Enhanced security middleware
+app.use(helmet());
+
+// Initialize nodemailer with retry logic
+const createTransporter = () => {
+  // Email configuration
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: process.env.SMTP_PORT || 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_APP_PASSWORD
+    },
+    tls: {
+      rejectUnauthorized: false // Needed for some email providers
+    }
+  });
+
+  return transporter;
+};
+
+const transporter = createTransporter();
+
+// Sanitize input function
+const sanitizeInput = (input) => sanitizeHtml(input, {
+  allowedTags: [], // Strip all HTML tags
+  allowedAttributes: {},
+  disallowedTagsMode: 'recursiveEscape'
+});
+
+// Enhanced validation middleware
 const validateContact = [
-  body('name').trim().isLength({ min: 2 }).escape(),
-  body('email').isEmail().normalizeEmail(),
-  body('message').trim().isLength({ min: 10 }).escape(),
+  body('name')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Name must be between 2 and 50 characters')
+    .escape(),
+
+  body('email')
+    .trim()
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email address'),
+
+  body('phone')
+    .optional()
+    .trim()
+    .matches(/^\+?[\d\s-]{10,}$/)
+    .withMessage('Please provide a valid phone number'),
+
+  body('message')
+    .trim()
+    .isLength({ min: 10, max: 1000 })
+    .withMessage('Message must be between 10 and 1000 characters')
+    .escape(),
+
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
     }
     next();
   }
 ];
 
-// Create email HTML
 const createEmailHTML = (name, email, phone, message) => `
 <!DOCTYPE html>
 <html>
@@ -185,44 +258,130 @@ const createEmailHTML = (name, email, phone, message) => `
 </html>
 `;
 
-
-// Contact form endpoint
-app.post('/api/contact', validateContact, async (req, res) => {
-  const { name, email, phone, message } = req.body;
-
-  if(phone === '') {
-    phone = 'Not Provided';
+// Enhanced email sending function with retry logic
+const sendContactEmail = async (data, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await transporter.sendMail(data);
+      return { success: true, response };
+    } catch (error) {
+      if (attempt === retries) throw error;
+      console.log(`Retry attempt ${attempt} of ${retries}`);
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
   }
+};
 
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_TO || process.env.EMAIL_USER,
-      subject: `New Contact Form Submission from ${name}`,
-      html: createEmailHTML(name, email, phone, message),
-      text: `Name: ${name}\nEmail: ${email}\nMessage: ${message}`
-    });
 
-    res.status(200).json({
-      success: true,
-      message: 'Thank you for your message. We will get back to you shortly!'
-    });
+// Enhanced contact form endpoint
+app.post('/api/contact',
+  validateContact,
+  async (req, res) => {
+    const { name, email, phone, message } = req.body;
 
-  } catch (error) {
-    console.error('Email error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send message. Please try again later.'
-    });
-  }
-});
+    // Sanitize inputs
+    const sanitizedData = {
+      name: sanitizeInput(name),
+      email: sanitizeInput(email),
+      phone: phone ? sanitizeInput(phone) : '',
+      message: sanitizeInput(message)
+    };
+
+    try {
+      const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+      console.log(`[${requestId}] Received contact form submission:`, {
+        timestamp: new Date().toISOString(),
+        ...sanitizedData
+      });
+
+      const emailData = {
+        from: {
+          name: process.env.EMAIL_FROM_NAME || 'Contact Form',
+          address: process.env.EMAIL_USER
+        },
+        to: sanitizedData.email,
+        bcc: [process.env.BCC_1, process.env.BCC_2].filter(Boolean),
+        subject: `New Contact Form Submission from ${sanitizedData.name}`,
+        html: createEmailHTML(
+          sanitizedData.name,
+          sanitizedData.email,
+          sanitizedData.phone || 'Not provided',
+          sanitizedData.message
+        ),
+        text: `Name: ${sanitizedData.name}\nEmail: ${sanitizedData.email}\nPhone: ${sanitizedData.phone || 'Not provided'}\nMessage: ${sanitizedData.message}`,
+        headers: {
+          'X-Priority': 'High',
+          'X-Contact-Form': 'true',
+          'X-Request-ID': requestId
+        }
+      };
+
+      const { response } = await sendContactEmail(emailData);
+
+      console.log(`[${requestId}] Email sent successfully:`, {
+        messageId: response.messageId,
+        timestamp: new Date().toISOString()
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Thank you for your message. We will get back to you shortly!',
+        requestId
+      });
+
+    } catch (error) {
+      const errorId = Date.now().toString(36);
+      console.error(`[${errorId}] Contact form error:`, {
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'We apologize, but we could not process your request at this time. Please try again later.',
+        errorId,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'healthy' });
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Start server
+// Global error handler
+app.use((error, req, res, next) => {
+  const errorId = Date.now().toString(36);
+  console.error(`[${errorId}] Global error:`, error);
+
+  res.status(500).json({
+    success: false,
+    message: 'An unexpected error occurred',
+    errorId,
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Internal Server Error'
+  });
+});
+
+// Start server with error handling
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
+}).on('error', (error) => {
+  console.error('Server failed to start:', error);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  transporter.close();
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
 });
