@@ -11,29 +11,42 @@ const keep_alive = require('./keep_alive');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Define allowed origins
+const allowedOrigins = [
+  'https://technology-master.com',
+  'https://www.technology-master.com',
+  'http://localhost:3000',
+  'http://localhost:5000'
+];
+
+// Basic middleware
+app.use(bodyParser.json());
+
+// CORS configuration
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Log the origin for debugging
+  console.log('Request origin:', origin);
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  next();
+});
+
+
 // Enhanced security middleware
 app.use(helmet());
-app.use(bodyParser.json({ limit: '10kb' })); // Limit payload size
-
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-};
-
-app.use(cors(corsOptions));
 
 // Initialize nodemailer with retry logic
 const createTransporter = () => {
