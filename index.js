@@ -91,7 +91,7 @@ const validateContact = [
     .withMessage('Please provide a valid email address'),
 
   body('phone')
-    .optional({ checkFalsy: false })
+    .optional({ checkFalsy: true })
     .trim()
     .matches(/^\+?[\d\s-]{10,}$/)
     .withMessage('Please provide a valid phone number'),
